@@ -1,0 +1,262 @@
+---
+title: "Hypothesis_SLIMM"
+author: "Petar Raykov"
+date: "2025-05-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+
+
+```{r}
+
+library(tidyverse)
+library(ggeffects)
+
+set.seed(123)
+
+# Simulate data
+n_subjects <- 100
+n_trials <- 30
+
+sim_data <- map_dfr(1:n_subjects, function(id) {
+  tibble(
+    Subject = id,
+    Expectancy = rnorm(n_trials),
+    Hippocampus = rnorm(n_trials)
+  ) %>%
+    mutate(
+      Memory_prob = plogis(0.6 * Expectancy^2 - 0.3 * Expectancy + 0.8 * Hippocampus - 0.8 * Expectancy * Hippocampus),
+      Memory = rbinom(n_trials, 1, Memory_prob)
+    )
+})
+
+# Fit model
+model <- glm(Memory ~ Expectancy + I(Expectancy^2) + Hippocampus + Expectancy:Hippocampus,
+             family = binomial, data = sim_data)
+
+# Get predicted values from model using ggpredict
+pred <- ggpredict(model, terms = c("Expectancy [all]", "Hippocampus [-1,1]"))
+
+# Plot raw data + model predictions
+ggplot(sim_data, aes(x = Expectancy, y = Memory)) +
+  geom_jitter(aes(color = cut(Hippocampus, breaks = c(-Inf, median(sim_data$Hippocampus), Inf), labels = c("Low", "High"))),
+              height = 0.05, alpha = 0.3) +
+  geom_line(data = pred, aes(x = x, y = predicted, color = group), size = 1.2) +
+  labs(title = "Memory ~ Expectancy × Hippocampus",
+       y = "Memory (0/1 or predicted)", color = "Hippocampal activation") +
+  theme_minimal()
+
+
+
+```
+
+
+```{r}
+set.seed(123)
+N <- 30000
+Expectancy <- rnorm(N)
+temp <- poly(Expectancy, 2, raw = TRUE)
+linX <- temp[, 1]
+quadX <- temp[, 2]
+
+Hipp <- rnorm(N)
+MPFC <- rnorm(N)
+
+logits <- -0.5 + 0.2 * linX + 0.3 * quadX +0.25*Hipp - 0.35*linX*Hipp + 0.25*MPFC + 0.15*linX*MPFC
+y <- rbinom(N, 1, plogis(logits))
+model <- glm(y ~ poly(Expectancy, 2, raw = TRUE)* Hipp + poly(Expectancy, 2, raw = TRUE)*MPFC, family = binomial)
+
+summary(model)
+
+plot(ggpredict(model,terms = c('Expectancy[all]','MPFC','Hipp')))
+
+plot(ggpredict(model,terms = c('Expectancy[all]','Hipp')))
+plot(ggpredict(model,terms = c('Expectancy[all]','MPFC')))
+
+
+Hipp_pred <- ggpredict(model,terms = c('Expectancy[all]','Hipp'))
+
+MPFC_pred <- ggpredict(model,terms = c('Expectancy[all]','MPFC'))
+
+
+
+
+
+```
+
+
+```{r,fig.width=15}
+
+
+
+
+P<- plot(Hipp_pred,show_data = FALSE,show_ci=FALSE) + theme_ggeffects(base_size = 40, base_family = "")+
+   labs(title = "Hypothesis P1", x = "Expectancy", y = "Memory") +
+  theme_classic() + theme(text=element_text(size=36))
+
+P
+# ggsave('./Hypothesis_1.png',P, width = 15, height = 10) #  width = 12, height = 8
+
+```
+
+
+## Figure
+
+```{r}
+set.seed(123)
+
+n_subjects <- 100
+n_trials <- 30
+N <- n_subjects * n_trials
+
+# Simulate data
+Subject <- rep(1:n_subjects, each = n_trials)
+Expectancy <- rnorm(N,mean=0)
+Hippocampus <- rnorm(N,mean=5)
+
+# Use poly(Expectancy, 2) to simulate effects
+Expectancy_poly <- poly(Expectancy, 2)
+Lin_Expectancy <- Expectancy_poly[, 1]
+Quad_Expectancy <- Expectancy_poly[, 2]
+
+# Linear interaction: only Lin_Expectancy interacts with Hippocampus
+logits <- 0.5 + 0.8 * Quad_Expectancy + 0.5 * Lin_Expectancy +
+          0.56 * Hippocampus - 1.5 * Lin_Expectancy * Hippocampus #-2*Quad_Expectancy*Hippocampus
+
+# Apply logistic function
+Memory_prob <- plogis(logits)
+Memory <- rbinom(N, 1, Memory_prob)
+
+# Data frame
+df <- data.frame(
+  Subject, Expectancy, Lin_Expectancy, Quad_Expectancy,
+  Hippocampus, Memory, Memory_prob
+)
+
+# Fit model
+model <- glm(Memory ~ Lin_Expectancy + Quad_Expectancy + Hippocampus + Lin_Expectancy:Hippocampus,
+             data = df, family = binomial)
+
+# Predict across expectancy range at low and high hippocampal activation
+exp_seq <- seq(from = -2.5, to = 2.5, length.out = 100)
+exp_poly <- poly(exp_seq, 2)
+
+pred_data <- rbind(
+  data.frame(Lin_Expectancy = exp_poly[, 1], Quad_Expectancy = exp_poly[, 2],
+             Hippocampus = -1, Expectancy = exp_seq, Level = "Low"),
+  data.frame(Lin_Expectancy = exp_poly[, 1], Quad_Expectancy = exp_poly[, 2],
+             Hippocampus = 1, Expectancy = exp_seq, Level = "High")
+)
+
+pred_data$Memory_pred <- predict(model, newdata = pred_data, type = "response")
+
+# Plot
+plot(0, 0, type = "n", xlim = c(-2.5, 2.5), ylim = c(0, 1),
+     xlab = "Expectancy", ylab = "Predicted Memory Probability",
+     main = "Memory ~ Expectancy × Hippocampus")
+lines(pred_data$Expectancy[pred_data$Level == "Low"],
+      pred_data$Memory_pred[pred_data$Level == "Low"], col = "black", lwd = 2)
+lines(pred_data$Expectancy[pred_data$Level == "High"],
+      pred_data$Memory_pred[pred_data$Level == "High"], col = "green", lwd = 2)
+legend("bottomright", legend = c("Low Hipp", "High Hipp"), col = c("black", "green"), lwd = 2)
+
+
+
+
+```
+
+
+```{r,fig.width=15,fig.height=15}
+
+
+set.seed(123)
+
+# Factors
+n_subjects <- 100
+n_trials_per_cond <- 10
+
+Expectancy <- c("Expected", "Unexpected")
+Memory <- c("Forgotten", "Remembered")
+
+# Create full factorial design for each subject
+sim_data <- data.frame()
+
+for (subj in 1:n_subjects) {
+  for (exp in Expectancy) {
+    for (mem in Memory) {
+      for (i in 1:n_trials_per_cond) {
+        
+        # Base activation
+        activation <- 5
+        
+        # Add memory effect
+        if (mem == "Remembered") {
+          activation <- activation + 0.5
+        }
+        
+        # Interaction: boost remembered-unexpected difference
+        if (mem == "Remembered" && exp == "Unexpected") {
+          activation <- activation + 1
+        }
+        
+        # Add noise
+        activation <- activation + rnorm(1, mean = 0, sd = 0.4)
+        
+        sim_data <- rbind(sim_data, data.frame(
+          Subject = subj,
+          Expectancy = exp,
+          Memory = mem,
+          Hippocampus = activation
+        ))
+      }
+    }
+  }
+}
+
+# Convert to factors for plotting
+sim_data$Expectancy <- factor(sim_data$Expectancy, levels = c("Unexpected","Expected"))
+sim_data$Memory <- factor(sim_data$Memory, levels = c("Forgotten", "Remembered"))
+
+# Plot using ggplot
+library(ggplot2)
+
+P2 <- ggplot(sim_data, aes(x = Expectancy, y = Hippocampus, fill = Memory)) +
+  stat_summary(fun = mean, geom = "bar", position = position_dodge(0.9)) +
+ # stat_summary(fun.data = mean_se, geom = "errorbar", position = position_dodge(0.9), width = 0.2) +
+  labs(
+    title = "Hypothesis P2",
+    y = "Hippocampus",
+    x = "Expectancy"
+  ) +
+  scale_fill_manual(values = c("black", "green")) +
+  theme_minimal() + theme(panel.grid = element_blank()) + theme(text=element_text(size=44)) + theme(axis.text.y = element_blank())
+
+ggsave('./P2_Hypothsis.png',P2,width = 15,height = 10,dpi=300) # width = 12,height = 8
+
+
+
+
+```
+
